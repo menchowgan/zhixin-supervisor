@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import Items from "@/components/Items.vue";
+import { onHide, onShow } from "@dcloudio/uni-app";
 
-const input = (e: any) => {
-  console.log(e);
-};
+const TEMP_KEY = "tempary_data_form";
 
 const form = ref({
   name: "",
@@ -13,6 +12,137 @@ const form = ref({
   address: "",
   door: "",
 });
+
+type Result = {
+  desc: string;
+  results: {
+    url: string;
+    comments: string;
+    isBad: boolean;
+  }[];
+};
+
+const createPdf = (comments: Result[]) => {
+  if (!form.value.name) {
+    uni.showToast({
+      title: "姓名不能为空",
+      icon: "none",
+    });
+    return;
+  }
+  if (!form.value.superviser) {
+    uni.showToast({
+      title: "监理不能为空",
+      icon: "none",
+    });
+    return;
+  }
+  if (comments.length === 0) {
+    uni.showModal({
+      title: "提示",
+      content: "当前没有不合格项目，请先添加再生成报告",
+      success: function (res) {
+        if (res.confirm) {
+          console.log("用户点击确定");
+        } else if (res.cancel) {
+          console.log("用户点击取消");
+        }
+      },
+    });
+    return;
+  }
+  uni.showModal({
+    title: "提示",
+    content: "确定生成pdf吗？",
+    success: function (res) {
+      if (res.confirm) {
+        console.log("用户点击确定");
+        sendRes(comments);
+      } else if (res.cancel) {
+        console.log("用户点击取消");
+      }
+    },
+  });
+};
+
+const sendRes = (comments: Result[]) => {
+  const results = {
+    name: form.value.name,
+    phone: form.value.phone,
+    superviser: form.value.superviser,
+    address: form.value.address,
+    door: form.value.door,
+    results: comments,
+  };
+  uni
+    .request({
+      url: "https://www.simple-life-space.xyz/pdf-generate",
+      method: "POST",
+      data: results,
+    })
+    .then((res) => {
+      console.debug(res);
+      if (res.statusCode == 200) {
+        uni.setStorageSync("tempary_data_form", "");
+        uni.setStorageSync("tempary_data_items", "");
+        uni.showModal({
+          title: "提示",
+          content:
+            "已生成，条码为：" + (res.data as any).code + " 点击确定后可复制",
+          success: function (r) {
+            if (r.confirm) {
+              uni.setClipboardData({
+                data: (res.data as any).code,
+                success: function () {
+                  uni.showToast({
+                    title: "复制成功",
+                    icon: "success",
+                  });
+                },
+              });
+            }
+          },
+        });
+      } else {
+        uni.showToast({
+          title: "生成失败",
+          icon: "none",
+        });
+      }
+    });
+};
+
+onHide(() => {
+  uni.setStorageSync(
+    TEMP_KEY,
+    JSON.stringify({
+      name: form.value.name,
+      phone: form.value.phone,
+      superviser: form.value.superviser,
+      address: form.value.address,
+      door: form.value.door,
+    })
+  );
+});
+
+const getStor = () => {
+  try {
+    const result = uni.getStorageSync(TEMP_KEY);
+    console.log("temp form", result);
+    if (result) {
+      const resultData = JSON.parse(result);
+      if (resultData) {
+        form.value = resultData;
+      }
+    }
+  } catch (e) {
+    console.debug(e);
+  }
+};
+
+onShow(() => {
+  getStor();
+});
 </script>
 
 <template>
@@ -20,35 +150,35 @@ const form = ref({
     <view class="form">
       <view class="form-item owner">
         <label for="owner">姓名</label>
-        <input id="owner" type="text" v-model="form.name" @input="input" />
-      </view>
-      <view class="form-item phone">
-        <label for="phone">电话</label>
-        <input id="phone" type="text" v-model="form.phone" @input="input" />
+        <input id="owner" type="text" v-model="form.name" />
       </view>
       <view class="form-item">
         <label for="superviser">监理</label>
-        <input
-          id="superviser"
-          type="text"
-          v-model="form.superviser"
-          @input="input"
-        />
+        <input id="superviser" type="text" v-model="form.superviser" />
       </view>
       <view class="form-item">
         <label for="address">楼盘</label>
-        <input id="address" type="text" v-model="form.address" @input="input" />
+        <input id="address" type="text" v-model="form.address" />
       </view>
       <view class="form-item">
         <label for="door">房号</label>
-        <input id="door" type="text" v-model="form.door" @input="input" />
+        <input id="door" type="text" v-model="form.door" />
       </view>
     </view>
 
-    <Items class="items"></Items>
+    <Items @submit="createPdf" class="items"></Items>
 
     <view class="tips">
-      <text style="width: 100%; font-weight: bold; text-align: center; margin-bottom: 10rpx;"> 检测声明 </text>
+      <text
+        style="
+          width: 100%;
+          font-weight: bold;
+          text-align: center;
+          margin-bottom: 10rpx;
+        "
+      >
+        检测声明
+      </text>
       <text
         >经委托人委托，对于受检工程 (商品房)
         进行套内及部分公共部位进行查验。本报告内容均依
@@ -58,7 +188,15 @@ const form = ref({
         时房屋质量进行综合评价，并负责对房屋情况报告内容进行异议解释和说明，但不代表受委托
         人与建设单位、施工单位等第三方争议之影响或约束。特此声明。\n\n</text
       >
-      <text style="width: 100%;font-weight: bold; text-align: center; margin-bottom: 10rpx">国家标准</text>
+      <text
+        style="
+          width: 100%;
+          font-weight: bold;
+          text-align: center;
+          margin-bottom: 10rpx;
+        "
+        >国家标准</text
+      >
       <text>1) 住宅设计规范 GB50096-2011</text>
       <text>2) 住宅建筑规范 GB50368-2012</text>
       <text>3) 民用建筑设计统一标准 GB50352-2019</text>
@@ -75,7 +213,15 @@ const form = ref({
       <text>14) 高层民用建筑设计防火规范 GB50045-95-2015</text>
       <text>15) 建筑节能工程施工质量验收规范 GB50411-2019\n\n</text>
 
-      <text style="width: 100%;font-weight: bold; text-align: center; margin-bottom: 10rpx">备注内容</text>
+      <text
+        style="
+          width: 100%;
+          font-weight: bold;
+          text-align: center;
+          margin-bottom: 10rpx;
+        "
+        >备注内容</text
+      >
       <text>1) 室内灯具安装后，建议连续通电试验 8 小时，无故障为合格。</text>
       <text
         >2) 室内燃气开通后，建议地暖温度设定 25℃，持续开启 48
@@ -94,7 +240,15 @@ const form = ref({
         检测，装修材料或新购家具造成的室内空气污染，避免对家人身体健康造成伤害。\n\n</text
       >
 
-      <text style="width: 100%;font-weight: bold; text-align: center; margin-bottom: 10rpx">主要内容说明分析</text>
+      <text
+        style="
+          width: 100%;
+          font-weight: bold;
+          text-align: center;
+          margin-bottom: 10rpx;
+        "
+        >主要内容说明分析</text
+      >
       <text
         >1、建议查看：相关证件
         (参照《中华人民共和国消费者权益保护法》第二章第七条)
@@ -121,6 +275,11 @@ const form = ref({
         >5、验收内容：排水坡度(参照标准：建筑装饰装修工程质量验收规范
         GB50210-2001 5.3.8) 验收标准：地砖坡度≥2‰，无积水，满足排水需要。</text
       >
+      <view class="gongzhang">
+        <image
+          src="https://www.simple-life-space.xyz/pdf-resource/default/gongzhnag.png"
+        ></image>
+      </view>
     </view>
   </view>
 </template>
@@ -137,7 +296,7 @@ const form = ref({
     border-radius: 10rpx;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     padding-top: 50rpx;
-    background-color: #f4fbff;
+    background-color: #f3fbff;
     // background-color: #a9ddfb;
 
     .form-item {
@@ -175,6 +334,7 @@ const form = ref({
 }
 
 .tips {
+  position: relative;
   width: calc(100% - 40rpx);
   padding: 20rpx;
   font-size: 20rpx;
@@ -183,8 +343,20 @@ const form = ref({
   text-align: justify;
   display: flex;
   flex-direction: column;
+}
 
-  text {
+.gongzhang {
+  width: 330rpx;
+  height: 600rpx;
+  float: right;
+  position: absolute;
+  right: 0;
+  top: 0;
+  image {
+    width: 100%;
+    height: 100%;
   }
 }
 </style>
+
+
