@@ -12,6 +12,9 @@ const photoSaver = (tempImagePath: string) => {
       success() {
         console.log("save success");
       },
+      fail() {
+        console.debug("save fail");
+      }
     });
   };
 };
